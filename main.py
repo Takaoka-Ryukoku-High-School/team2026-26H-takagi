@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,10 +16,43 @@ INK = "#20342F"
 MUTED = "#5E726D"
 WARNING = "#D97C5A"
 SUCCESS = "#2C7A5F"
+EGG_HATCH_SLEEP_MINUTES = 8 * 60
 
 
 def default_state():
-    return {"is_sleeping": False, "sleep_started_at": None, "sleep_history": []}
+    return {
+        "is_sleeping": False,
+        "sleep_started_at": None,
+        "sleep_history": [],
+        "users": {},
+        "current_user": None,
+    }
+
+
+def normalize_inventory(raw_inventory):
+    if not isinstance(raw_inventory, dict):
+        return {}
+    normalized = {}
+    for key, value in raw_inventory.items():
+        if not isinstance(value, int):
+            continue
+        if str(key) == "卵":
+            normalized["egg"] = value
+        elif str(key) == "egg":
+            normalized["egg"] = value
+        elif str(key) == "レア卵":
+            normalized["rare_egg"] = value
+        elif str(key) == "睡眠のちから":
+            normalized["sleep_power"] = value
+        else:
+            normalized[str(key)] = value
+    return normalized
+
+
+def normalize_characters(raw_characters):
+    if not isinstance(raw_characters, list):
+        return []
+    return [str(item) for item in raw_characters if isinstance(item, str)]
 
 
 def load_state():
@@ -44,15 +78,193 @@ def load_state():
         if isinstance(started, str) and isinstance(ended, str) and isinstance(minutes, int):
             cleaned.append({"started_at": started, "ended_at": ended, "minutes": minutes})
 
+    users = data.get("users", {})
+    if not isinstance(users, dict):
+        users = {}
+    cleaned_users = {}
+    for username, user_data in users.items():
+        if not isinstance(user_data, dict):
+            continue
+        cleaned_users[str(username)] = {
+            "password": str(user_data.get("password", "")),
+            "reward_points": int(user_data.get("reward_points", 0) or 0),
+            "last_login_date": user_data.get("last_login_date") if isinstance(user_data.get("last_login_date"), str) else None,
+            "inventory": normalize_inventory(user_data.get("inventory")),
+            "characters": normalize_characters(user_data.get("characters")),
+            "egg_sleep_minutes": max(0, int(user_data.get("egg_sleep_minutes", 0) or 0)),
+        }
+
+    current_user = data.get("current_user")
+    if not isinstance(current_user, str) or current_user not in cleaned_users:
+        current_user = None
+
     return {
         "is_sleeping": bool(data.get("is_sleeping")),
         "sleep_started_at": data.get("sleep_started_at") if isinstance(data.get("sleep_started_at"), str) else None,
         "sleep_history": cleaned,
+        "users": cleaned_users,
+        "current_user": current_user,
     }
 
 
 def save_state(state):
     DATA_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def get_today_key():
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def apply_login_reward(state, username):
+    users = state.setdefault("users", {})
+    user = users.setdefault(username, {"password": "", "reward_points": 0, "last_login_date": None})
+    today = get_today_key()
+    current_points = int(user.get("reward_points", 0) or 0)
+    last_login_date = user.get("last_login_date")
+
+    if last_login_date == today:
+        return {
+            "reward_received": False,
+            "amount": 0,
+            "balance": current_points,
+            "message": "本日はすでに報酬を受け取り済みです。",
+        }
+
+    reward_amount = 100
+    user["reward_points"] = current_points + reward_amount
+    user["last_login_date"] = today
+    state["current_user"] = username
+    return {
+        "reward_received": True,
+        "amount": reward_amount,
+        "balance": user["reward_points"],
+        "message": f"{username}さんに{reward_amount}ptのログイン報酬を付与しました。",
+    }
+
+
+def grant_opening_bonus(state, username):
+    users = state.setdefault("users", {})
+    user = users.setdefault(
+        username,
+        {
+            "password": "",
+            "reward_points": 0,
+            "last_login_date": None,
+            "inventory": {},
+            "characters": [],
+        },
+    )
+    today = get_today_key()
+    current_points = int(user.get("reward_points", 0) or 0)
+    last_date = user.get("last_opened_date")
+
+    if last_date == today:
+        return {
+            "reward_received": False,
+            "amount": 0,
+            "balance": current_points,
+            "message": "本日はすでに10ptを受け取り済みです。",
+        }
+
+    reward_amount = 10
+    user["reward_points"] = current_points + reward_amount
+    user["last_opened_date"] = today
+    state["current_user"] = username
+    return {
+        "reward_received": True,
+        "amount": reward_amount,
+        "balance": user["reward_points"],
+        "message": f"アプリを開いたので{reward_amount}ptを獲得しました。",
+    }
+
+
+def authenticate_user(state, username, password):
+    name = (username or "").strip()
+    pwd = password or ""
+
+    if not name:
+        return False, "ユーザー名を入力してください。"
+    if not pwd:
+        return False, "パスワードを入力してください。"
+
+    users = state.setdefault("users", {})
+    if name not in users:
+        users[name] = {"password": pwd, "reward_points": 0, "last_login_date": None, "inventory": {}}
+        state["current_user"] = name
+        return True, "新規ユーザーとして登録しました。"
+
+    if users[name].get("password") != pwd:
+        return False, "パスワードが違います。"
+
+    state["current_user"] = name
+    return True, "ログインしました。"
+
+
+def draw_gacha(state, username):
+    users = state.setdefault("users", {})
+    user = users.setdefault(username, {"password": "", "reward_points": 0, "last_login_date": None, "inventory": {}, "characters": []})
+    user_inventory = normalize_inventory(user.get("inventory"))
+    user["inventory"] = user_inventory
+
+    current_points = int(user.get("reward_points", 0) or 0)
+    gacha_cost = 100
+
+    if current_points < gacha_cost:
+        return {
+            "success": False,
+            "item": None,
+            "amount": 0,
+            "message": "ポイントが足りないためガチャを回せません。",
+            "balance": current_points,
+        }
+
+    rewards = ["卵", "卵", "卵", "卵", "卵", "レア卵", "睡眠のちから"]
+    item = random.choice(rewards)
+    user["reward_points"] = current_points - gacha_cost
+
+    inventory_key = {
+        "卵": "egg",
+        "レア卵": "rare_egg",
+        "睡眠のちから": "sleep_power",
+    }.get(item, item)
+    user_inventory[inventory_key] = int(user_inventory.get(inventory_key, 0)) + 1
+    user["inventory"] = user_inventory
+
+    return {
+        "success": True,
+        "item": item,
+        "amount": 1,
+        "message": f"ガチャの結果: {item} を手に入れました！",
+        "balance": user["reward_points"],
+    }
+
+
+def incubate_eggs(state, username, sleep_minutes):
+    users = state.setdefault("users", {})
+    user = users.setdefault(username, {"password": "", "reward_points": 0, "last_login_date": None, "inventory": {}, "characters": []})
+    inventory = normalize_inventory(user.get("inventory"))
+    characters = normalize_characters(user.get("characters"))
+    user["inventory"] = inventory
+    user["characters"] = characters
+    egg_count = max(0, inventory.get("egg", 0))
+    if egg_count == 0:
+        user["egg_sleep_minutes"] = 0
+        return []
+
+    total_sleep_minutes = max(0, int(user.get("egg_sleep_minutes", 0))) + max(0, int(sleep_minutes))
+    hatched_count = min(egg_count, total_sleep_minutes // EGG_HATCH_SLEEP_MINUTES)
+    character_candidates = ["ぽち", "ねこ", "うさぎ", "くま", "ひよこ", "ドラゴン"]
+    hatched_characters = [random.choice(character_candidates) for _ in range(hatched_count)]
+    inventory["egg"] = egg_count - hatched_count
+    user["inventory"] = inventory
+    characters.extend(hatched_characters)
+    user["characters"] = characters
+    user["egg_sleep_minutes"] = (
+        total_sleep_minutes - hatched_count * EGG_HATCH_SLEEP_MINUTES
+        if inventory["egg"] > 0
+        else 0
+    )
+    return hatched_characters
 
 
 def format_clock(value):
@@ -96,7 +308,7 @@ def format_date_time(iso_value):
 
 
 def main(page: ft.Page):
-    page.title = "睡眠時間測定"
+    page.title = "ねむログ"
     page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor = BG
     page.padding = 24
@@ -104,6 +316,26 @@ def main(page: ft.Page):
     page.scroll = ft.ScrollMode.AUTO
 
     state = load_state()
+    state.setdefault("users", {})
+    state.setdefault("current_user", "guest")
+    state["users"].setdefault(
+        "guest",
+        {
+            "password": "",
+            "reward_points": 0,
+            "last_login_date": None,
+            "last_opened_date": None,
+            "inventory": {},
+            "characters": [],
+            "egg_sleep_minutes": 0,
+        },
+    )
+    state["current_user"] = "guest"
+    opening_bonus = grant_opening_bonus(state, "guest")
+    try:
+        save_state(state)
+    except OSError:
+        pass
 
     async def clock_loop():
         while True:
@@ -132,7 +364,14 @@ def main(page: ft.Page):
     )
     last_sleep_value = ft.Text("まだ記録がありません", size=13, color=MUTED)
     week_total_value = ft.Text("0分", size=13, color=MUTED)
+    reward_balance = ft.Text("報酬残高: 0pt", size=13, color=PRIMARY)
     history_list = ft.Column(spacing=8)
+    current_user_label = ft.Text("ゲスト", size=12, color=PRIMARY, weight=ft.FontWeight.W_600)
+    opening_bonus_message = ft.Text(opening_bonus["message"], size=12, color=SUCCESS)
+    gacha_result = ft.Text("ガチャを回して卵をGET！", size=12, color=PRIMARY)
+    gacha_inventory = ft.Text("卵: 0個", size=12, color=MUTED)
+    hatch_result = ft.Text("卵は睡眠時間で孵化します。", size=12, color=MUTED)
+    character_list = ft.Text("キャラクター: なし", size=12, color=PRIMARY)
 
     def save_and_refresh():
         try:
@@ -141,6 +380,34 @@ def main(page: ft.Page):
             status_badge.content.value = "保存失敗"
         refresh_timer()
         render_history()
+        update_reward_display()
+
+    def update_reward_display():
+        current_user = state.get("current_user")
+        if current_user and current_user in state.get("users", {}):
+            reward_balance.value = f"報酬残高: {state['users'][current_user].get('reward_points', 0)}pt"
+            current_user_label.value = "ゲスト"
+            inventory = normalize_inventory(state['users'][current_user].get('inventory', {}))
+            egg_count = inventory.get("egg", 0)
+            if egg_count > 0:
+                progress = state["users"][current_user].get("egg_sleep_minutes", 0)
+                gacha_inventory.value = (
+                    f"卵: {egg_count}個 / 孵化進捗: "
+                    f"{progress}/{EGG_HATCH_SLEEP_MINUTES}分"
+                )
+            else:
+                gacha_inventory.value = "卵: 0個"
+            characters = normalize_characters(state['users'][current_user].get('characters', []))
+            if characters:
+                character_list.value = f"キャラクター: {', '.join(characters)}"
+            else:
+                character_list.value = "キャラクター: なし"
+        else:
+            reward_balance.value = "報酬残高: 0pt"
+            current_user_label.value = "ゲスト"
+            gacha_inventory.value = "卵: 0個"
+            character_list.value = "キャラクター: なし"
+        page.update()
 
     def refresh_timer():
         if state.get("is_sleeping") and state.get("sleep_started_at"):
@@ -159,7 +426,6 @@ def main(page: ft.Page):
             start_button.disabled = False
             stop_button.disabled = True
 
-        total_minutes = sum(item.get("minutes", 0) for item in state.get("sleep_history", []))
         week_minutes = sum(
             item.get("minutes", 0)
             for item in state.get("sleep_history", [])[-7:]
@@ -241,10 +507,44 @@ def main(page: ft.Page):
         state["sleep_history"] = state["sleep_history"][-20:]
         state["is_sleeping"] = False
         state["sleep_started_at"] = None
+        current_user = state.get("current_user")
+        if current_user:
+            hatched_characters = incubate_eggs(state, current_user, minutes)
+            if hatched_characters:
+                hatch_result.value = f"睡眠で{'、'.join(hatched_characters)}が孵化しました！"
+                hatch_result.color = SUCCESS
+            elif state["users"][current_user]["inventory"].get("egg", 0) > 0:
+                hatch_result.value = "睡眠で孵化が進みました。"
+                hatch_result.color = MUTED
+            else:
+                hatch_result.value = "卵を入手すると、睡眠時間で孵化します。"
+                hatch_result.color = MUTED
         save_and_refresh()
 
+    def handle_gacha(e):
+        current_user = state.get("current_user")
+        if not current_user:
+            gacha_result.value = "アプリを開いてポイントを受け取ってください。"
+            gacha_result.color = WARNING
+            page.update()
+            return
+
+        result = draw_gacha(state, current_user)
+        gacha_result.value = result["message"]
+        gacha_result.color = SUCCESS if result["success"] else WARNING
+        if result["success"]:
+            reward_balance.value = f"報酬残高: {result['balance']}pt"
+        update_reward_display()
+        try:
+            save_state(state)
+        except OSError:
+            gacha_result.value = "ガチャ結果の保存に失敗しました。"
+            gacha_result.color = WARNING
+        page.update()
+
     page.run_task(clock_loop)
-    content = ft.Container(
+
+    tracker_card = ft.Container(
         content=ft.Column(
             [
                 ft.Row(
@@ -257,7 +557,7 @@ def main(page: ft.Page):
                             border_radius=12,
                             alignment=ft.Alignment.CENTER,
                         ),
-                        ft.Text("Sleep Tracker", size=12, color=PRIMARY, weight=ft.FontWeight.BOLD),
+                        ft.Text("ねむログ", size=12, color=PRIMARY, weight=ft.FontWeight.BOLD),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
@@ -269,6 +569,7 @@ def main(page: ft.Page):
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
+                current_user_label,
                 timer_label,
                 ft.Row([start_button, stop_button], spacing=12),
                 ft.Container(
@@ -278,12 +579,32 @@ def main(page: ft.Page):
                             last_sleep_value,
                             ft.Text("7日間の合計", size=12, color=MUTED),
                             week_total_value,
+                            reward_balance,
+                            opening_bonus_message,
                         ],
                         spacing=8,
                     ),
                     padding=18,
                     bgcolor="#F3F8F4",
                     border_radius=14,
+                ),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text("ガチャ", size=14, weight=ft.FontWeight.W_600, color=INK),
+                            ft.Text("100ptで1回引けます。卵が出ることもあります。", size=11, color=MUTED),
+                            ft.ElevatedButton("ガチャを回す (100pt)", on_click=handle_gacha),
+                            gacha_result,
+                            gacha_inventory,
+                            hatch_result,
+                            character_list,
+                        ],
+                        spacing=8,
+                    ),
+                    padding=18,
+                    bgcolor="#FFF8E8",
+                    border_radius=14,
+                    border=ft.Border.all(1, "#F3D7A6"),
                 ),
                 ft.Text("記録一覧", size=14, weight=ft.FontWeight.W_600, color=INK),
                 history_list,
@@ -296,11 +617,13 @@ def main(page: ft.Page):
         border_radius=20,
         border=ft.Border.all(1, "#DDEFE3"),
         shadow=ft.BoxShadow(blur_radius=26, color="#1B3B3518", offset=ft.Offset(0, 8)),
+        visible=True,
     )
 
-    page.add(content)
+    page.add(tracker_card)
     render_history()
     refresh_timer()
+    update_reward_display()
 
 
 if __name__ == "__main__":
