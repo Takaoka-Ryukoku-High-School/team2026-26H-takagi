@@ -16,7 +16,25 @@ INK = "#20342F"
 MUTED = "#5E726D"
 WARNING = "#D97C5A"
 SUCCESS = "#2C7A5F"
-EGG_HATCH_SLEEP_MINUTES = 8 * 60
+EGG_HATCH_SLEEP_MINUTES = 40 * 60
+EGG_RARITIES = (
+    ("卵", "egg", "ノーマル"),
+    ("レア卵", "rare_egg", "レア"),
+    ("スーパーレア卵", "super_rare_egg", "スーパーレア"),
+    ("伝説卵", "legendary_egg", "伝説"),
+)
+FAIRY_CANDIDATES = ("🧚 ふわりん", "🧚 きらりん", "🧚 もこりん")
+SUPER_RARE_DRAGONS = ("フレアドラゴン", "アイスドラゴン", "サンダードラゴン")
+DRAGON_APPEARANCES = {
+    "フレアドラゴン": "🔥 フレアドラゴン",
+    "アイスドラゴン": "❄️ アイスドラゴン",
+    "サンダードラゴン": "⚡ サンダードラゴン",
+}
+DRAGON_HATCH_STYLES = {
+    "フレアドラゴン": ("🔥", "#75402F"),
+    "アイスドラゴン": ("❄️", "#245779"),
+    "サンダードラゴン": ("⚡", "#594B83"),
+}
 
 
 def default_state():
@@ -36,12 +54,12 @@ def normalize_inventory(raw_inventory):
     for key, value in raw_inventory.items():
         if not isinstance(value, int):
             continue
-        if str(key) == "卵":
-            normalized["egg"] = value
-        elif str(key) == "egg":
-            normalized["egg"] = value
-        elif str(key) == "レア卵":
-            normalized["rare_egg"] = value
+        rarity_key = next(
+            (inventory_key for item_name, inventory_key, _ in EGG_RARITIES if str(key) in (item_name, inventory_key)),
+            None,
+        )
+        if rarity_key:
+            normalized[rarity_key] = value
         elif str(key) == "睡眠のちから":
             normalized["sleep_power"] = value
         else:
@@ -53,6 +71,10 @@ def normalize_characters(raw_characters):
     if not isinstance(raw_characters, list):
         return []
     return [str(item) for item in raw_characters if isinstance(item, str)]
+
+
+def format_character_name(character):
+    return DRAGON_APPEARANCES.get(character, character)
 
 
 def load_state():
@@ -218,23 +240,29 @@ def draw_gacha(state, username):
             "balance": current_points,
         }
 
-    rewards = ["卵", "卵", "卵", "卵", "卵", "レア卵", "睡眠のちから"]
+    rewards = (
+        ["卵"] * 80
+        + ["レア卵"] * 15
+        + ["スーパーレア卵"] * 4
+        + ["伝説卵"]
+    )
     item = random.choice(rewards)
     user["reward_points"] = current_points - gacha_cost
 
-    inventory_key = {
-        "卵": "egg",
-        "レア卵": "rare_egg",
-        "睡眠のちから": "sleep_power",
-    }.get(item, item)
+    inventory_key = next(
+        (key for item_name, key, _ in EGG_RARITIES if item_name == item),
+        "sleep_power" if item == "睡眠のちから" else item,
+    )
     user_inventory[inventory_key] = int(user_inventory.get(inventory_key, 0)) + 1
     user["inventory"] = user_inventory
 
+    rarity = next((label for item_name, _, label in EGG_RARITIES if item_name == item), None)
+    result_message = f"ガチャの結果: {item}（{rarity}）を手に入れました！" if rarity else f"ガチャの結果: {item} を手に入れました！"
     return {
         "success": True,
         "item": item,
         "amount": 1,
-        "message": f"ガチャの結果: {item} を手に入れました！",
+        "message": result_message,
         "balance": user["reward_points"],
     }
 
@@ -246,22 +274,39 @@ def incubate_eggs(state, username, sleep_minutes):
     characters = normalize_characters(user.get("characters"))
     user["inventory"] = inventory
     user["characters"] = characters
-    egg_count = max(0, inventory.get("egg", 0))
-    if egg_count == 0:
+    egg_counts = {
+        key: max(0, inventory.get(key, 0))
+        for _, key, _ in EGG_RARITIES
+    }
+    total_egg_count = sum(egg_counts.values())
+    if total_egg_count == 0:
         user["egg_sleep_minutes"] = 0
         return []
 
     total_sleep_minutes = max(0, int(user.get("egg_sleep_minutes", 0))) + max(0, int(sleep_minutes))
-    hatched_count = min(egg_count, total_sleep_minutes // EGG_HATCH_SLEEP_MINUTES)
+    hatched_count = min(total_egg_count, total_sleep_minutes // EGG_HATCH_SLEEP_MINUTES)
     character_candidates = ["ぽち", "ねこ", "うさぎ", "くま", "ひよこ", "ドラゴン"]
-    hatched_characters = [random.choice(character_candidates) for _ in range(hatched_count)]
-    inventory["egg"] = egg_count - hatched_count
+    hatched_characters = []
+    eggs_left_to_hatch = hatched_count
+    for _, key, rarity in EGG_RARITIES:
+        hatched_from_rarity = min(egg_counts[key], eggs_left_to_hatch)
+        if rarity == "伝説":
+            candidates = FAIRY_CANDIDATES
+        elif rarity == "スーパーレア":
+            candidates = SUPER_RARE_DRAGONS
+        else:
+            candidates = character_candidates
+        hatched_characters.extend(
+            random.choice(candidates) for _ in range(hatched_from_rarity)
+        )
+        inventory[key] = egg_counts[key] - hatched_from_rarity
+        eggs_left_to_hatch -= hatched_from_rarity
     user["inventory"] = inventory
     characters.extend(hatched_characters)
     user["characters"] = characters
     user["egg_sleep_minutes"] = (
         total_sleep_minutes - hatched_count * EGG_HATCH_SLEEP_MINUTES
-        if inventory["egg"] > 0
+        if sum(inventory[key] for _, key, _ in EGG_RARITIES) > 0
         else 0
     )
     return hatched_characters
@@ -369,9 +414,61 @@ def main(page: ft.Page):
     current_user_label = ft.Text("ゲスト", size=12, color=PRIMARY, weight=ft.FontWeight.W_600)
     opening_bonus_message = ft.Text(opening_bonus["message"], size=12, color=SUCCESS)
     gacha_result = ft.Text("ガチャを回して卵をGET！", size=12, color=PRIMARY)
+    gacha_animation_icon = ft.Text(
+        "✨",
+        size=108,
+        color="#FFE58A",
+        scale=0.8,
+        animate_scale=220,
+    )
+    gacha_animation_label = ft.Text(
+        "運命の結果は...",
+        size=25,
+        weight=ft.FontWeight.BOLD,
+        color="white",
+        text_align=ft.TextAlign.CENTER,
+    )
     gacha_inventory = ft.Text("卵: 0個", size=12, color=MUTED)
     hatch_result = ft.Text("卵は睡眠時間で孵化します。", size=12, color=MUTED)
     character_list = ft.Text("キャラクター: なし", size=12, color=PRIMARY)
+    gacha_button = ft.ElevatedButton("ガチャを回す (100pt)")
+    gacha_backdrop = ft.Container(
+        left=0,
+        top=0,
+        right=0,
+        bottom=0,
+        bgcolor="#103D36",
+        content=ft.Column(
+            [
+                ft.Text("✦          ✧          ✦", size=28, color="#F4D887"),
+                ft.Container(
+                    content=gacha_animation_icon,
+                    width=220,
+                    height=220,
+                    alignment=ft.Alignment.CENTER,
+                    shape=ft.BoxShape.CIRCLE,
+                    bgcolor="#1C5E50",
+                    border=ft.Border.all(2, "#F4D887"),
+                    shadow=ft.BoxShadow(
+                        blur_radius=36,
+                        color="#668F6B",
+                        spread_radius=4,
+                    ),
+                ),
+                gacha_animation_label,
+                ft.Text("✧          ✦          ✧", size=24, color="#8DE0BD"),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=28,
+        ),
+    )
+    gacha_overlay = ft.Stack(
+        expand=True,
+        visible=False,
+        controls=[gacha_backdrop],
+    )
+    page.overlay.append(gacha_overlay)
 
     def save_and_refresh():
         try:
@@ -388,24 +485,34 @@ def main(page: ft.Page):
             reward_balance.value = f"報酬残高: {state['users'][current_user].get('reward_points', 0)}pt"
             current_user_label.value = "ゲスト"
             inventory = normalize_inventory(state['users'][current_user].get('inventory', {}))
-            egg_count = inventory.get("egg", 0)
-            if egg_count > 0:
+            egg_counts = {key: inventory.get(key, 0) for _, key, _ in EGG_RARITIES}
+            if sum(egg_counts.values()) > 0:
                 progress = state["users"][current_user].get("egg_sleep_minutes", 0)
                 gacha_inventory.value = (
-                    f"卵: {egg_count}個 / 孵化進捗: "
+                    f"ノーマル卵: {egg_counts['egg']}個 / レア卵: {egg_counts['rare_egg']}個\n"
+                    f"スーパーレア卵: {egg_counts['super_rare_egg']}個 / 伝説卵: {egg_counts['legendary_egg']}個\n"
+                    "孵化進捗: "
                     f"{progress}/{EGG_HATCH_SLEEP_MINUTES}分"
                 )
             else:
-                gacha_inventory.value = "卵: 0個"
+                gacha_inventory.value = (
+                    "ノーマル卵: 0個 / レア卵: 0個\n"
+                    "スーパーレア卵: 0個 / 伝説卵: 0個"
+                )
             characters = normalize_characters(state['users'][current_user].get('characters', []))
             if characters:
-                character_list.value = f"キャラクター: {', '.join(characters)}"
+                character_list.value = (
+                    f"キャラクター: {', '.join(format_character_name(character) for character in characters)}"
+                )
             else:
                 character_list.value = "キャラクター: なし"
         else:
             reward_balance.value = "報酬残高: 0pt"
             current_user_label.value = "ゲスト"
-            gacha_inventory.value = "卵: 0個"
+            gacha_inventory.value = (
+                "ノーマル卵: 0個 / レア卵: 0個\n"
+                "スーパーレア卵: 0個 / 伝説卵: 0個"
+            )
             character_list.value = "キャラクター: なし"
         page.update()
 
@@ -511,15 +618,111 @@ def main(page: ft.Page):
         if current_user:
             hatched_characters = incubate_eggs(state, current_user, minutes)
             if hatched_characters:
-                hatch_result.value = f"睡眠で{'、'.join(hatched_characters)}が孵化しました！"
+                fairy_characters = [
+                    character for character in hatched_characters
+                    if character in FAIRY_CANDIDATES
+                ]
+                if fairy_characters:
+                    hatch_result.value = (
+                        f"伝説の卵からかわいい妖精「{'、'.join(fairy_characters)}」が孵化しました！"
+                    )
+                else:
+                    displayed_characters = (
+                        format_character_name(character)
+                        for character in hatched_characters
+                    )
+                    hatch_result.value = f"睡眠で{'、'.join(displayed_characters)}が孵化しました！"
                 hatch_result.color = SUCCESS
-            elif state["users"][current_user]["inventory"].get("egg", 0) > 0:
+                hatched_dragons = [
+                    character for character in hatched_characters
+                    if character in DRAGON_HATCH_STYLES
+                ]
+                if hatched_dragons:
+                    page.run_task(reveal_hatched_dragons, hatched_dragons)
+            elif any(
+                state["users"][current_user]["inventory"].get(key, 0) > 0
+                for _, key, _ in EGG_RARITIES
+            ):
                 hatch_result.value = "睡眠で孵化が進みました。"
                 hatch_result.color = MUTED
             else:
                 hatch_result.value = "卵を入手すると、睡眠時間で孵化します。"
                 hatch_result.color = MUTED
         save_and_refresh()
+
+    async def reveal_hatched_dragons(dragons):
+        gacha_overlay.visible = True
+        gacha_backdrop.bgcolor = "#103D36"
+        gacha_animation_icon.color = "#FFFFFF"
+        gacha_animation_icon.scale = 0.8
+        gacha_animation_icon.value = "🥚"
+        gacha_animation_label.value = "卵が揺れている..."
+        page.update()
+        await asyncio.sleep(0.45)
+
+        gacha_animation_icon.value = "🥚💥"
+        gacha_animation_icon.scale = 1.05
+        gacha_animation_label.value = "殻にヒビが入った！"
+        page.update()
+        await asyncio.sleep(0.4)
+
+        for dragon in dragons:
+            element, backdrop = DRAGON_HATCH_STYLES[dragon]
+            gacha_backdrop.bgcolor = backdrop
+            gacha_animation_icon.value = f"🐉{element}"
+            gacha_animation_icon.color = "#FFFFFF"
+            gacha_animation_icon.scale = 1.35
+            gacha_animation_label.value = (
+                f"卵の中から\n{format_character_name(dragon)}が誕生！"
+            )
+            page.update()
+            await asyncio.sleep(1.5)
+
+        gacha_overlay.visible = False
+        page.update()
+
+    async def reveal_gacha(item):
+        gacha_overlay.visible = True
+        gacha_animation_label.value = "運命の結果は..."
+        page.update()
+
+        symbols = ["✨", "🥚", "💫", "🌙", "✨", "🎁", "⭐"]
+        backdrops = ["#103D36", "#174A55", "#493C65", "#754C36"]
+        for index, symbol in enumerate(symbols):
+            gacha_animation_icon.value = symbol
+            gacha_animation_icon.scale = 1.18 if index % 2 == 0 else 0.84
+            gacha_animation_icon.color = "#FFE58A" if index % 2 == 0 else "#FFFFFF"
+            gacha_animation_label.value = "アイテム召喚中..."
+            gacha_backdrop.bgcolor = backdrops[index % len(backdrops)]
+            page.update()
+            await asyncio.sleep(0.12 + index * 0.035)
+
+        item_symbols = {
+            "卵": "🥚",
+            "レア卵": "🌟",
+            "スーパーレア卵": "💎",
+            "伝説卵": "👑",
+            "睡眠のちから": "🌙",
+        }
+        gacha_animation_icon.value = item_symbols.get(item, "🎁")
+        gacha_animation_icon.scale = 1.35
+        rarity = next((label for item_name, _, label in EGG_RARITIES if item_name == item), None)
+        rarity_colors = {
+            "ノーマル": ("#FFF1A8", "#24634D"),
+            "レア": ("#9DEBFF", "#174A70"),
+            "スーパーレア": ("#F0A9FF", "#4E286B"),
+            "伝説": ("#FFCF74", "#713B26"),
+        }
+        gacha_animation_icon.color, gacha_backdrop.bgcolor = rarity_colors.get(
+            rarity,
+            ("#FFF1A8", "#24634D"),
+        )
+        gacha_animation_label.value = f"{rarity}ランク！\n{item}を獲得！" if rarity else f"{item}を獲得！"
+        page.update()
+        await asyncio.sleep(2.0)
+        gacha_overlay.visible = False
+        gacha_button.disabled = False
+        page.update()
 
     def handle_gacha(e):
         current_user = state.get("current_user")
@@ -533,6 +736,7 @@ def main(page: ft.Page):
         gacha_result.value = result["message"]
         gacha_result.color = SUCCESS if result["success"] else WARNING
         if result["success"]:
+            gacha_button.disabled = True
             reward_balance.value = f"報酬残高: {result['balance']}pt"
         update_reward_display()
         try:
@@ -541,6 +745,10 @@ def main(page: ft.Page):
             gacha_result.value = "ガチャ結果の保存に失敗しました。"
             gacha_result.color = WARNING
         page.update()
+        if result["success"]:
+            page.run_task(reveal_gacha, result["item"])
+
+    gacha_button.on_click = handle_gacha
 
     page.run_task(clock_loop)
 
@@ -592,8 +800,12 @@ def main(page: ft.Page):
                     content=ft.Column(
                         [
                             ft.Text("ガチャ", size=14, weight=ft.FontWeight.W_600, color=INK),
-                            ft.Text("100ptで1回引けます。卵が出ることもあります。", size=11, color=MUTED),
-                            ft.ElevatedButton("ガチャを回す (100pt)", on_click=handle_gacha),
+                            ft.Text(
+                                "100pt / ノーマル80%・レア15%・激レア4%・伝説1%",
+                                size=11,
+                                color=MUTED,
+                            ),
+                            gacha_button,
                             gacha_result,
                             gacha_inventory,
                             hatch_result,
