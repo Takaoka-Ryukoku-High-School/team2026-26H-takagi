@@ -24,6 +24,25 @@ EGG_RARITIES = (
     ("伝説卵", "legendary_egg", "伝説"),
 )
 FAIRY_CANDIDATES = ("🧚 ふわりん", "🧚 きらりん", "🧚 もこりん")
+NORMAL_EGG_CANDIDATES = (
+    "イヌ",
+    "ネコ",
+    "ウサギ",
+    "ヒツジ",
+    "ハムスター",
+    "インコ",
+    "フクロウ",
+    "ハリネズミ",
+    "ヘビ",
+    "サル",
+    "キリン",
+    "ウシ",
+    "カピバラ",
+    "ラクダ",
+    "カンガルー",
+    "シマウマ",
+)
+RARE_EGG_CANDIDATES = ("ライオン", "パンダ", "ウマ", "ゾウ", "チーター", "ワニ", "サイ", "ゴリラ", "トラ")
 SUPER_RARE_DRAGONS = ("フレアドラゴン", "アイスドラゴン", "サンダードラゴン")
 DRAGON_APPEARANCES = {
     "フレアドラゴン": "🔥 フレアドラゴン",
@@ -285,7 +304,6 @@ def incubate_eggs(state, username, sleep_minutes):
 
     total_sleep_minutes = max(0, int(user.get("egg_sleep_minutes", 0))) + max(0, int(sleep_minutes))
     hatched_count = min(total_egg_count, total_sleep_minutes // EGG_HATCH_SLEEP_MINUTES)
-    character_candidates = ["ぽち", "ねこ", "うさぎ", "くま", "ひよこ", "ドラゴン"]
     hatched_characters = []
     eggs_left_to_hatch = hatched_count
     for _, key, rarity in EGG_RARITIES:
@@ -294,8 +312,10 @@ def incubate_eggs(state, username, sleep_minutes):
             candidates = FAIRY_CANDIDATES
         elif rarity == "スーパーレア":
             candidates = SUPER_RARE_DRAGONS
+        elif rarity == "レア":
+            candidates = RARE_EGG_CANDIDATES
         else:
-            candidates = character_candidates
+            candidates = NORMAL_EGG_CANDIDATES
         hatched_characters.extend(
             random.choice(candidates) for _ in range(hatched_from_rarity)
         )
