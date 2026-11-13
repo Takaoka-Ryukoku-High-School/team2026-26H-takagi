@@ -198,3 +198,41 @@ def test_legendary_egg_hatches_a_cute_fairy():
     assert hatched == ["🧚 ふわりん"]
     assert state["users"]["alice"]["inventory"]["legendary_egg"] == 0
     assert "🧚 ふわりん" in state["users"]["alice"]["characters"]
+
+
+def test_rare_egg_hatches_one_of_the_forest_animals():
+    state = {
+        "users": {
+            "alice": {
+                "inventory": {"rare_egg": 1},
+                "characters": [],
+                "egg_sleep_minutes": 0,
+            }
+        }
+    }
+
+    with patch("main.random.choice", side_effect=lambda candidates: candidates[0]):
+        hatched = incubate_eggs(state, "alice", 40 * 60)
+
+    assert hatched == ["ライオン"]
+    assert state["users"]["alice"]["inventory"]["rare_egg"] == 0
+    assert "ライオン" in state["users"]["alice"]["characters"]
+
+
+def test_normal_egg_hatches_one_of_the_requested_animals():
+    state = {
+        "users": {
+            "alice": {
+                "inventory": {"egg": 1},
+                "characters": [],
+                "egg_sleep_minutes": 0,
+            }
+        }
+    }
+
+    with patch("main.random.choice", side_effect=lambda candidates: candidates[0]):
+        hatched = incubate_eggs(state, "alice", 40 * 60)
+
+    assert hatched == ["イヌ"]
+    assert state["users"]["alice"]["inventory"]["egg"] == 0
+    assert "イヌ" in state["users"]["alice"]["characters"]

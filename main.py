@@ -451,6 +451,7 @@ def main(page: ft.Page):
     gacha_inventory = ft.Text("卵: 0個", size=12, color=MUTED)
     hatch_result = ft.Text("卵は睡眠時間で孵化します。", size=12, color=MUTED)
     character_list = ft.Text("キャラクター: なし", size=12, color=PRIMARY)
+    animal_plaza = ft.Row(spacing=8, run_spacing=8, wrap=True)
     gacha_button = ft.ElevatedButton("ガチャを回す (100pt)")
     gacha_backdrop = ft.Container(
         left=0,
@@ -499,6 +500,68 @@ def main(page: ft.Page):
         render_history()
         update_reward_display()
 
+    def get_character_badge(character):
+        if character in FAIRY_CANDIDATES:
+            return "🧚", "#F5D5F9", format_character_name(character)
+        if character in DRAGON_HATCH_STYLES:
+            icon, color = DRAGON_HATCH_STYLES[character]
+            return f"🐉{icon}", color, format_character_name(character)
+        if character in RARE_EGG_CANDIDATES:
+            return "🦁", "#DDEEFF", format_character_name(character)
+        if character in SUPER_RARE_DRAGONS:
+            return "🐉", "#EAD5FF", format_character_name(character)
+        return "🐾", "#EAF7E9", format_character_name(character)
+
+    def render_animal_plaza():
+        current_user = state.get("current_user")
+        if not current_user or current_user not in state.get("users", {}):
+            animal_plaza.controls = [
+                ft.Container(
+                    content=ft.Text("まだ動物がいません。卵を育てて広場を作ろう！", size=12, color=MUTED),
+                    padding=12,
+                    bgcolor="#F5F9F7",
+                    border_radius=12,
+                )
+            ]
+            return
+
+        characters = normalize_characters(state["users"][current_user].get("characters", []))
+        if not characters:
+            animal_plaza.controls = [
+                ft.Container(
+                    content=ft.Text("まだ動物がいません。卵を育てて広場を作ろう！", size=12, color=MUTED),
+                    padding=12,
+                    bgcolor="#F5F9F7",
+                    border_radius=12,
+                )
+            ]
+            return
+
+        animal_cards = []
+        for character in characters:
+            icon, color, label = get_character_badge(character)
+            animal_cards.append(
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text(icon, size=28),
+                            ft.Text(label, size=11, weight=ft.FontWeight.W_600, color=INK),
+                        ],
+                        spacing=4,
+                        tight=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    width=92,
+                    height=88,
+                    padding=10,
+                    bgcolor=color,
+                    border_radius=14,
+                    border=ft.Border.all(1, "#D9EAE3"),
+                    alignment=ft.Alignment.CENTER,
+                )
+            )
+        animal_plaza.controls = animal_cards
+
     def update_reward_display():
         current_user = state.get("current_user")
         if current_user and current_user in state.get("users", {}):
@@ -526,6 +589,7 @@ def main(page: ft.Page):
                 )
             else:
                 character_list.value = "キャラクター: なし"
+            render_animal_plaza()
         else:
             reward_balance.value = "報酬残高: 0pt"
             current_user_label.value = "ゲスト"
@@ -534,6 +598,7 @@ def main(page: ft.Page):
                 "スーパーレア卵: 0個 / 伝説卵: 0個"
             )
             character_list.value = "キャラクター: なし"
+            render_animal_plaza()
         page.update()
 
     def refresh_timer():
@@ -772,7 +837,25 @@ def main(page: ft.Page):
 
     page.run_task(clock_loop)
 
-    tracker_card = ft.Container(
+    sleep_view_button = ft.ElevatedButton("睡眠画面", on_click=lambda e: set_screen("sleep"), bgcolor=PRIMARY, color="white")
+    plaza_view_button = ft.OutlinedButton("動物の広場", on_click=lambda e: set_screen("plaza"))
+
+    def set_screen(screen_name):
+        if screen_name == "sleep":
+            sleep_view_button.bgcolor = PRIMARY
+            sleep_view_button.color = "white"
+            plaza_view_button.bgcolor = "transparent"
+            plaza_view_button.color = PRIMARY
+            screen_container.content = sleep_screen
+        else:
+            sleep_view_button.bgcolor = "transparent"
+            sleep_view_button.color = PRIMARY
+            plaza_view_button.bgcolor = PRIMARY
+            plaza_view_button.color = "white"
+            screen_container.content = plaza_screen
+        page.update()
+
+    sleep_screen = ft.Container(
         content=ft.Column(
             [
                 ft.Row(
@@ -852,7 +935,61 @@ def main(page: ft.Page):
         visible=True,
     )
 
-    page.add(tracker_card)
+    plaza_screen = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Container(
+                            content=ft.Text("🏞", color="white", size=18),
+                            width=40,
+                            height=40,
+                            bgcolor=PRIMARY,
+                            border_radius=12,
+                            alignment=ft.Alignment.CENTER,
+                        ),
+                        ft.Text("動物の広場", size=12, color=PRIMARY, weight=ft.FontWeight.BOLD),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text("ふかふかな広場", size=16, weight=ft.FontWeight.W_700, color=INK),
+                            ft.Text("孵化した動物たちが遊んでいます。", size=12, color=MUTED),
+                            animal_plaza,
+                        ],
+                        spacing=12,
+                    ),
+                    padding=18,
+                    bgcolor="#F4F8F6",
+                    border_radius=16,
+                    border=ft.Border.all(1, "#D9EAE3"),
+                ),
+            ],
+            spacing=18,
+        ),
+        width=420,
+        padding=22,
+        bgcolor=CARD,
+        border_radius=20,
+        border=ft.Border.all(1, "#DDEFE3"),
+        shadow=ft.BoxShadow(blur_radius=26, color="#1B3B3518", offset=ft.Offset(0, 8)),
+        visible=True,
+    )
+
+    screen_container = ft.Container(content=sleep_screen, width=420)
+    nav_bar = ft.Row(
+        [
+            sleep_view_button,
+            plaza_view_button,
+        ],
+        spacing=12,
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+
+    page.add(nav_bar, screen_container)
+    set_screen("sleep")
     render_history()
     refresh_timer()
     update_reward_display()
