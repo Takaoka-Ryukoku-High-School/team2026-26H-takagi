@@ -54,6 +54,12 @@ DRAGON_HATCH_STYLES = {
     "アイスドラゴン": ("❄️", "#245779"),
     "サンダードラゴン": ("⚡", "#594B83"),
 }
+HATCH_RARITY_STYLES = {
+    "ノーマル": ("#103D36", "#1C5E50", "#F4D887", "✨", 2),
+    "レア": ("#123D62", "#176A86", "#9DEBFF", "💫", 3),
+    "スーパーレア": ("#241242", "#4B236D", "#E5B2FF", "⚡", 4),
+    "伝説": ("#26113F", "#76532A", "#FFCF74", "🌟", 5),
+}
 
 
 def default_state():
@@ -94,6 +100,16 @@ def normalize_characters(raw_characters):
 
 def format_character_name(character):
     return DRAGON_APPEARANCES.get(character, character)
+
+
+def get_hatch_rarity(character):
+    if character in FAIRY_CANDIDATES:
+        return "伝説"
+    if character in SUPER_RARE_DRAGONS:
+        return "スーパーレア"
+    if character in RARE_EGG_CANDIDATES:
+        return "レア"
+    return "ノーマル"
 
 
 def load_state():
@@ -430,6 +446,7 @@ def main(page: ft.Page):
     last_sleep_value = ft.Text("まだ記録がありません", size=13, color=MUTED)
     week_total_value = ft.Text("0分", size=13, color=MUTED)
     reward_balance = ft.Text("報酬残高: 0pt", size=13, color=PRIMARY)
+    plaza_balance = ft.Text("報酬残高: 0pt", size=13, color="#5B4719", weight=ft.FontWeight.W_700)
     history_list = ft.Column(spacing=8)
     current_user_label = ft.Text("ゲスト", size=12, color=PRIMARY, weight=ft.FontWeight.W_600)
     opening_bonus_message = ft.Text(opening_bonus["message"], size=12, color=SUCCESS)
@@ -451,8 +468,22 @@ def main(page: ft.Page):
     gacha_inventory = ft.Text("卵: 0個", size=12, color=MUTED)
     hatch_result = ft.Text("卵は睡眠時間で孵化します。", size=12, color=MUTED)
     character_list = ft.Text("キャラクター: なし", size=12, color=PRIMARY)
-    animal_plaza = ft.Row(spacing=8, run_spacing=8, wrap=True)
+    animal_plaza = ft.Stack(width=880, height=520)
     gacha_button = ft.ElevatedButton("ガチャを回す (100pt)")
+    gacha_animation_orb = ft.Container(
+        content=gacha_animation_icon,
+        width=220,
+        height=220,
+        alignment=ft.Alignment.CENTER,
+        shape=ft.BoxShape.CIRCLE,
+        bgcolor="#1C5E50",
+        border=ft.Border.all(2, "#F4D887"),
+        shadow=ft.BoxShadow(
+            blur_radius=36,
+            color="#668F6B",
+            spread_radius=4,
+        ),
+    )
     gacha_backdrop = ft.Container(
         left=0,
         top=0,
@@ -462,20 +493,7 @@ def main(page: ft.Page):
         content=ft.Column(
             [
                 ft.Text("✦          ✧          ✦", size=28, color="#F4D887"),
-                ft.Container(
-                    content=gacha_animation_icon,
-                    width=220,
-                    height=220,
-                    alignment=ft.Alignment.CENTER,
-                    shape=ft.BoxShape.CIRCLE,
-                    bgcolor="#1C5E50",
-                    border=ft.Border.all(2, "#F4D887"),
-                    shadow=ft.BoxShadow(
-                        blur_radius=36,
-                        color="#668F6B",
-                        spread_radius=4,
-                    ),
-                ),
+                gacha_animation_orb,
                 gacha_animation_label,
                 ft.Text("✧          ✦          ✧", size=24, color="#8DE0BD"),
             ],
@@ -518,9 +536,8 @@ def main(page: ft.Page):
             animal_plaza.controls = [
                 ft.Container(
                     content=ft.Text("まだ動物がいません。卵を育てて広場を作ろう！", size=12, color=MUTED),
-                    padding=12,
-                    bgcolor="#F5F9F7",
-                    border_radius=12,
+                    left=315,
+                    top=455,
                 )
             ]
             return
@@ -530,34 +547,52 @@ def main(page: ft.Page):
             animal_plaza.controls = [
                 ft.Container(
                     content=ft.Text("まだ動物がいません。卵を育てて広場を作ろう！", size=12, color=MUTED),
-                    padding=12,
-                    bgcolor="#F5F9F7",
-                    border_radius=12,
+                    left=315,
+                    top=455,
                 )
             ]
             return
 
+        animal_positions = (
+            (72, 152), (182, 115), (660, 112), (752, 170),
+            (62, 350), (180, 424), (665, 420), (766, 342),
+            (264, 62), (568, 62), (276, 444), (575, 444),
+        )
         animal_cards = []
-        for character in characters:
+        for index, character in enumerate(characters):
             icon, color, label = get_character_badge(character)
+            left, top = animal_positions[index % len(animal_positions)]
+            top += (index // len(animal_positions)) * 55
             animal_cards.append(
                 ft.Container(
                     content=ft.Column(
                         [
-                            ft.Text(icon, size=28),
-                            ft.Text(label, size=11, weight=ft.FontWeight.W_600, color=INK),
+                            ft.Container(
+                                content=ft.Text(icon, size=38),
+                                width=58,
+                                height=58,
+                                alignment=ft.Alignment.CENTER,
+                                shape=ft.BoxShape.CIRCLE,
+                                bgcolor=color,
+                                border=ft.Border.all(2, "#FFFFFF"),
+                                shadow=ft.BoxShadow(blur_radius=8, color="#31563D66", offset=ft.Offset(0, 5)),
+                            ),
+                            ft.Container(
+                                content=ft.Text(label, size=10, weight=ft.FontWeight.W_600, color=INK),
+                                padding=ft.Padding(6, 2, 6, 2),
+                                bgcolor="#F4FFE8",
+                                border_radius=9,
+                            ),
                         ],
-                        spacing=4,
+                        spacing=2,
                         tight=True,
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    width=92,
-                    height=88,
-                    padding=10,
-                    bgcolor=color,
-                    border_radius=14,
-                    border=ft.Border.all(1, "#D9EAE3"),
-                    alignment=ft.Alignment.CENTER,
+                    left=left,
+                    top=top,
+                    width=88,
+                    height=86,
+                    alignment=ft.Alignment.TOP_CENTER,
                 )
             )
         animal_plaza.controls = animal_cards
@@ -565,7 +600,9 @@ def main(page: ft.Page):
     def update_reward_display():
         current_user = state.get("current_user")
         if current_user and current_user in state.get("users", {}):
-            reward_balance.value = f"報酬残高: {state['users'][current_user].get('reward_points', 0)}pt"
+            balance_text = f"報酬残高: {state['users'][current_user].get('reward_points', 0)}pt"
+            reward_balance.value = balance_text
+            plaza_balance.value = balance_text
             current_user_label.value = "ゲスト"
             inventory = normalize_inventory(state['users'][current_user].get('inventory', {}))
             egg_counts = {key: inventory.get(key, 0) for _, key, _ in EGG_RARITIES}
@@ -592,6 +629,7 @@ def main(page: ft.Page):
             render_animal_plaza()
         else:
             reward_balance.value = "報酬残高: 0pt"
+            plaza_balance.value = "報酬残高: 0pt"
             current_user_label.value = "ゲスト"
             gacha_inventory.value = (
                 "ノーマル卵: 0個 / レア卵: 0個\n"
@@ -718,12 +756,7 @@ def main(page: ft.Page):
                     )
                     hatch_result.value = f"睡眠で{'、'.join(displayed_characters)}が孵化しました！"
                 hatch_result.color = SUCCESS
-                hatched_dragons = [
-                    character for character in hatched_characters
-                    if character in DRAGON_HATCH_STYLES
-                ]
-                if hatched_dragons:
-                    page.run_task(reveal_hatched_dragons, hatched_dragons)
+                page.run_task(reveal_hatched_characters, hatched_characters)
             elif any(
                 state["users"][current_user]["inventory"].get(key, 0) > 0
                 for _, key, _ in EGG_RARITIES
@@ -735,35 +768,68 @@ def main(page: ft.Page):
                 hatch_result.color = MUTED
         save_and_refresh()
 
-    async def reveal_hatched_dragons(dragons):
+    async def reveal_hatched_characters(characters):
         gacha_overlay.visible = True
-        gacha_backdrop.bgcolor = "#103D36"
-        gacha_animation_icon.color = "#FFFFFF"
-        gacha_animation_icon.scale = 0.8
-        gacha_animation_icon.value = "🥚"
-        gacha_animation_label.value = "卵が揺れている..."
-        page.update()
-        await asyncio.sleep(0.45)
-
-        gacha_animation_icon.value = "🥚💥"
-        gacha_animation_icon.scale = 1.05
-        gacha_animation_label.value = "殻にヒビが入った！"
-        page.update()
-        await asyncio.sleep(0.4)
-
-        for dragon in dragons:
-            element, backdrop = DRAGON_HATCH_STYLES[dragon]
+        for character in characters:
+            rarity = get_hatch_rarity(character)
+            backdrop, orb_color, accent, burst, pulse_count = HATCH_RARITY_STYLES[rarity]
             gacha_backdrop.bgcolor = backdrop
-            gacha_animation_icon.value = f"🐉{element}"
-            gacha_animation_icon.color = "#FFFFFF"
-            gacha_animation_icon.scale = 1.35
-            gacha_animation_label.value = (
-                f"卵の中から\n{format_character_name(dragon)}が誕生！"
-            )
+            gacha_animation_orb.bgcolor = orb_color
+            gacha_animation_orb.border = ft.Border.all(2, accent)
+            gacha_animation_icon.value = "🥚"
+            gacha_animation_icon.color = accent
+            gacha_animation_icon.scale = 0.8
+            gacha_animation_label.value = f"{rarity}の卵が輝き始めた..."
             page.update()
-            await asyncio.sleep(1.5)
+
+            for pulse in range(pulse_count):
+                gacha_animation_icon.value = "🥚" if pulse % 2 == 0 else f"🥚{burst}"
+                gacha_animation_icon.scale = 0.9 + pulse * 0.08
+                gacha_animation_orb.shadow = ft.BoxShadow(
+                    blur_radius=18 + pulse * 8,
+                    color=accent,
+                    spread_radius=pulse + 1,
+                )
+                page.update()
+                await asyncio.sleep(0.2)
+
+            gacha_animation_icon.value = "🥚💥"
+            gacha_animation_icon.scale = 1.15 + pulse_count * 0.04
+            gacha_animation_label.value = "殻に亀裂が走る！"
+            page.update()
+            await asyncio.sleep(0.25)
+
+            gacha_animation_icon.value = f"{burst}{burst}"
+            gacha_animation_icon.scale = 1.3 + pulse_count * 0.06
+            gacha_animation_label.value = "まばゆい光があふれ出す！"
+            page.update()
+            await asyncio.sleep(0.2)
+
+            icon, _, label = get_character_badge(character)
+            gacha_animation_icon.value = icon
+            gacha_animation_icon.color = "#FFFFFF"
+            gacha_animation_icon.scale = 1.2 + pulse_count * 0.08
+            gacha_animation_orb.shadow = ft.BoxShadow(
+                blur_radius=36 + pulse_count * 8,
+                color=accent,
+                spread_radius=4 + pulse_count,
+            )
+            gacha_animation_label.value = f"{rarity}の卵から\n{label}が誕生！"
+            page.update()
+            await asyncio.sleep(1.0 + pulse_count * 0.15)
 
         gacha_overlay.visible = False
+        gacha_animation_icon.value = "✨"
+        gacha_animation_icon.color = "#FFE58A"
+        gacha_animation_icon.scale = 0.8
+        gacha_animation_orb.bgcolor = "#1C5E50"
+        gacha_animation_orb.border = ft.Border.all(2, "#F4D887")
+        gacha_animation_orb.shadow = ft.BoxShadow(
+            blur_radius=36,
+            color="#668F6B",
+            spread_radius=4,
+        )
+        gacha_backdrop.bgcolor = "#103D36"
         page.update()
 
     async def reveal_gacha(item):
@@ -847,12 +913,14 @@ def main(page: ft.Page):
             plaza_view_button.bgcolor = "transparent"
             plaza_view_button.color = PRIMARY
             screen_container.content = sleep_screen
+            screen_container.width = 420
         else:
             sleep_view_button.bgcolor = "transparent"
             sleep_view_button.color = PRIMARY
             plaza_view_button.bgcolor = PRIMARY
             plaza_view_button.color = "white"
             screen_container.content = plaza_screen
+            screen_container.width = 960
         page.update()
 
     sleep_screen = ft.Container(
@@ -935,43 +1003,145 @@ def main(page: ft.Page):
         visible=True,
     )
 
+    plaza_scene = ft.Stack(
+        width=880,
+        height=540,
+        controls=[
+            ft.Container(left=24, top=208, width=160, height=96, rotate=0.72, bgcolor="#B4EC91", border_radius=12),
+            ft.Container(left=690, top=230, width=150, height=92, rotate=0.72, bgcolor="#B4EC91", border_radius=12),
+            ft.Container(left=260, top=88, width=118, height=74, rotate=0.72, bgcolor="#B4EC91", border_radius=12),
+            ft.Text("☀️", left=24, top=18, size=34),
+            ft.Text("🌼      🌿       🌷", left=238, top=490, size=22),
+            ft.Text("🌿       🌼      🌱", right=32, top=490, size=22),
+            ft.Stack(
+                left=0,
+                top=0,
+                width=880,
+                height=150,
+                controls=[
+                    ft.Container(
+                        left=45,
+                        top=40,
+                        width=42,
+                        height=13,
+                        bgcolor="#F3C54B",
+                        border_radius=4,
+                        shadow=ft.BoxShadow(blur_radius=5, color="#45613A66", offset=ft.Offset(0, 3)),
+                    ),
+                    ft.Container(left=48, top=50, width=7, height=48, bgcolor="#9A6843", border_radius=3),
+                    ft.Container(left=80, top=50, width=7, height=48, bgcolor="#9A6843", border_radius=3),
+                    ft.Container(left=49, top=61, width=37, height=6, bgcolor="#D79B56", border_radius=3),
+                    ft.Container(left=49, top=75, width=37, height=6, bgcolor="#D79B56", border_radius=3),
+                    ft.Container(left=49, top=89, width=37, height=6, bgcolor="#D79B56", border_radius=3),
+                    ft.Container(
+                        left=83,
+                        top=50,
+                        width=112,
+                        height=15,
+                        rotate=0.38,
+                        bgcolor="#E85D55",
+                        border_radius=7,
+                        border=ft.Border.all(2, "#C74843"),
+                        shadow=ft.BoxShadow(blur_radius=5, color="#45613A66", offset=ft.Offset(0, 3)),
+                    ),
+                    ft.Container(left=121, top=74, width=8, height=30, bgcolor="#9A6843", border_radius=3),
+                    ft.Text("すべり台", left=61, top=111, size=13, weight=ft.FontWeight.W_600, color="#684B2D"),
+                    ft.Container(left=356, top=28, width=8, height=76, rotate=-0.16, bgcolor="#8F633F", border_radius=4),
+                    ft.Container(left=505, top=28, width=8, height=76, rotate=0.16, bgcolor="#8F633F", border_radius=4),
+                    ft.Container(left=357, top=24, width=155, height=10, bgcolor="#A97648", border_radius=5),
+                    ft.Container(left=418, top=33, width=4, height=57, bgcolor="#6B5741", border_radius=2),
+                    ft.Container(left=469, top=33, width=4, height=57, bgcolor="#6B5741", border_radius=2),
+                    ft.Container(left=408, top=87, width=27, height=8, bgcolor="#E2A947", border_radius=4),
+                    ft.Container(left=459, top=87, width=27, height=8, bgcolor="#E2A947", border_radius=4),
+                    ft.Text("ブランコ", left=408, top=111, size=13, weight=ft.FontWeight.W_600, color="#426C4C"),
+                    ft.Container(
+                        left=641,
+                        top=32,
+                        width=170,
+                        height=72,
+                        padding=8,
+                        bgcolor="#9B663C",
+                        border_radius=12,
+                        border=ft.Border.all(3, "#80502F"),
+                        shadow=ft.BoxShadow(blur_radius=5, color="#45613A66", offset=ft.Offset(0, 3)),
+                        content=ft.Container(
+                            content=ft.Text("🏰", size=28),
+                            alignment=ft.Alignment.CENTER,
+                            bgcolor="#E8C77F",
+                            border_radius=8,
+                        ),
+                    ),
+                    ft.Text("お砂場", left=696, top=111, size=13, weight=ft.FontWeight.W_600, color="#684B2D"),
+                ],
+            ),
+            ft.Container(
+                left=0,
+                top=0,
+                width=880,
+                height=520,
+                content=animal_plaza,
+            ),
+        ],
+    )
+
+    def pan_plaza(event):
+        plaza_scene.left = max(-180, min(180, (plaza_scene.left or 0) + event.local_delta.x))
+        plaza_scene.top = max(-120, min(120, (plaza_scene.top or 0) + event.local_delta.y))
+        page.update()
+
     plaza_screen = ft.Container(
         content=ft.Column(
             [
                 ft.Row(
                     [
                         ft.Container(
-                            content=ft.Text("🏞", color="white", size=18),
-                            width=40,
-                            height=40,
-                            bgcolor=PRIMARY,
-                            border_radius=12,
-                            alignment=ft.Alignment.CENTER,
+                            content=ft.Text("🌿 ねむログ・ベースキャンプ", size=20, weight=ft.FontWeight.W_700, color="white"),
+                            padding=ft.Padding(18, 12, 18, 12),
+                            bgcolor="#35794B",
+                            border_radius=16,
+                            shadow=ft.BoxShadow(blur_radius=12, color="#264B3266", offset=ft.Offset(0, 4)),
                         ),
-                        ft.Text("動物の広場", size=12, color=PRIMARY, weight=ft.FontWeight.BOLD),
+                        ft.Container(
+                            content=plaza_balance,
+                            padding=ft.Padding(18, 12, 18, 12),
+                            bgcolor="#E9B83E",
+                            border_radius=16,
+                            border=ft.Border.all(2, "#FFF1B2"),
+                        ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
+                ft.Text("上から見た広場 · ドラッグして移動", size=12, color=MUTED),
                 ft.Container(
-                    content=ft.Column(
-                        [
-                            ft.Text("ふかふかな広場", size=16, weight=ft.FontWeight.W_700, color=INK),
-                            ft.Text("孵化した動物たちが遊んでいます。", size=12, color=MUTED),
-                            animal_plaza,
-                        ],
-                        spacing=12,
+                    content=ft.GestureDetector(
+                        content=ft.Stack(
+                            width=880,
+                            height=540,
+                            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                            controls=[
+                                ft.Container(
+                                    width=880,
+                                    height=540,
+                                    bgcolor="#A1E582",
+                                    border_radius=24,
+                                ),
+                                plaza_scene,
+                            ],
+                        ),
+                        on_pan_update=pan_plaza,
                     ),
-                    padding=18,
-                    bgcolor="#F4F8F6",
-                    border_radius=16,
-                    border=ft.Border.all(1, "#D9EAE3"),
+                    width=880,
+                    padding=0,
+                    bgcolor="#A1E582",
+                    border_radius=24,
+                    border=ft.Border.all(2, "#76BB63"),
                 ),
             ],
-            spacing=18,
+            spacing=14,
         ),
-        width=420,
-        padding=22,
-        bgcolor=CARD,
+        width=960,
+        padding=16,
+        bgcolor="#D8F4CB",
         border_radius=20,
         border=ft.Border.all(1, "#DDEFE3"),
         shadow=ft.BoxShadow(blur_radius=26, color="#1B3B3518", offset=ft.Offset(0, 8)),
@@ -988,7 +1158,7 @@ def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.CENTER,
     )
 
-    page.add(nav_bar, screen_container)
+    page.add(screen_container, nav_bar)
     set_screen("sleep")
     render_history()
     refresh_timer()
